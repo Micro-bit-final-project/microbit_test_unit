@@ -6,6 +6,7 @@ from microbit_serial import microbit_serial as ubit
 
 import pygame, serial
 from time import sleep
+from random import randint
 
 # Connect to the microbit
 port = ubit.connect()
@@ -54,30 +55,86 @@ def map(x, in_min, in_max, out_min, out_max):
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
 run = True
+send = False
 while run:
     for event in pygame.event.get():
         # Run forever until user presses X to close the window
         if event.type == pygame.QUIT:
             run = False
             break
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_s:
+                send = True
 
     # Obtain data from the microbit
     data = ubit.data(port)
-    if type(data) is list: # Make sure message is intact
-        uBitX = data[0]
-        if uBitX > 1000:
-            uBitX = 1000
-        elif uBitX < -1000:
-            uBitX = -1000
-        angle = map(uBitX, -1000, 1000, -90, 90)
+    while type(data) != list: # Make sure message is intact and wait for it to come
+        data = ubit.data(port)
+    print(data)
 
-        screen.fill(background)
-        rotated_image = pygame.transform.rotate(image, angle)
-        rotated_rec = rotated_image.get_rect(center = image_rec.center)
-        screen.blit(rotated_image, rotated_rec)
-        
+    uBitX = data[0]
+    if uBitX > 1000:
+        uBitX = 1000
+    elif uBitX < -1000:
+        uBitX = -1000
+    angle = map(uBitX, -1000, 1000, -90, 90)
+
+    screen.fill(background)
+    rotated_image = pygame.transform.rotate(image, angle)
+    rotated_rec = rotated_image.get_rect(center = image_rec.center)
+    screen.blit(rotated_image, rotated_rec)
+    if send:
+        port.write("R".encode()) # Let the microbit know we are going to send data
+    else:
+        port.write("Y".encode()) # Let the microbit know we received the data
+
     # Update screen
     pygame.display.flip()
+
+    if send:
+        while True:
+            message = port.readline().decode("utf-8")
+            if message.find("Y") > -1:
+                print("Ready")
+                break
+
+        # Send data to the microbit
+        brightness_led_one = randint(0, 5)
+        brightness_led_two = randint(0, 5)
+        brightness_led_three = randint(0, 5)
+        brightness_led_four = randint(0, 5)
+        brightness_led_five = randint(0, 5)
+        info = str([brightness_led_one, brightness_led_two, brightness_led_three, brightness_led_four, brightness_led_five])
+        length = str(len(info))
+        if len(length) < 3:
+            if len(length) == 1:
+                length = "0" + "0" + length
+            elif len(length) == 2:
+                length = "0" + length
+        port.write(length.encode())
+        print(length)
+
+        while True:
+            message = port.readline().decode("utf-8")
+            if message.find("Y") > -1:
+                print("Ready")
+                break
+
+        port.write(info.encode())
+        print(info)
+
+        # Obtain data from the microbit
+        data = ubit.data(port)
+        while type(data) != list: # Make sure message is intact and wait for it to come
+            data = ubit.data(port)
+        print(data)
+
+        while True:
+            message = port.readline().decode("utf-8")
+            if message.find("Y") > -1:
+                print("Ready")
+                break
+        send = False
 
 # Quit game
 pygame.quit()
