@@ -1,141 +1,114 @@
-# Allow importing a file outside of python path
-import sys, os
-sys.path.append("../")
-# Import microbit serial handler
-from microbit_serial import microbit_serial as ubit
+import pygame
+import serial
+import microbit_serial as ubit
+from threading import Thread
+import sys
+import time
 
-import pygame, serial
-from time import sleep
-from random import randint
+width = 800
+height = 800
+data = [0, 0, 0, 0]
+timer = 0
+
+# Init pygame
+pygame.init()
+clock = pygame.time.Clock()
+screen = pygame.display.set_mode((width, height))
 
 # Connect to the microbit
 port = ubit.connect()
 while type(port) is not serial.Serial:
     print("Looking for a microbit")
+    run_notice = True
     port = ubit.connect()
-    sleep(1)
-
-# Connect to the microbit
+    for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
 print("Microbit Found")
+pygame.time.wait(200) # Let the OS setup the port
 port.open()
 
-# Init pygame
-pygame.init()
-
-# Window set up
-screen = pygame.display.set_mode([800, 800])
-background = 30, 30, 30
-screen.fill(background)
-
-# Load the microbit image
-image = pygame.image.load("microbit.png")
-image_rec = image.get_rect()
-
-# Calculate x and y to draw the image
-X = int(round((800 - 540) / 2, 0))
-Y = int(round((800 - 440) / 2, 0))
-
-image_rec.x = X
-image_rec.y = Y
-
-
-def map(x, in_min, in_max, out_min, out_max):
+def get_data():
     """
-    From https://www.arduino.cc/reference/en/language/functions/math/map/
-    Re-maps a number from one range to another.
-    That is, a value of fromLow would get mapped to toLow,
-    a value of fromHigh to toHigh, values in-between to values in-between, etc.
-
-    - value: the number to map.
-    - fromLow: the lower bound of the value’s current range.
-    - fromHigh: the upper bound of the value’s current range.
-    - toLow: the lower bound of the value’s target range.
-    - toHigh: the upper bound of the value’s target range.
+    This function is used to loop the retrieving of data
+    from the microbit. It depends on microbit_serial
+    functions.
     """
-    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
-
-run = True
-send = False
-while run:
-    for event in pygame.event.get():
-        # Run forever until user presses X to close the window
-        if event.type == pygame.QUIT:
-            run = False
-            break
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_s:
-                send = True
-
-    # Obtain data from the microbit
-    data = ubit.data(port)
-    while type(data) != list: # Make sure message is intact and wait for it to come
-        data = ubit.data(port)
-    print(data)
-
-    uBitX = data[0]
-    if uBitX > 1000:
-        uBitX = 1000
-    elif uBitX < -1000:
-        uBitX = -1000
-    angle = map(uBitX, -1000, 1000, -90, 90)
-
-    screen.fill(background)
-    rotated_image = pygame.transform.rotate(image, angle)
-    rotated_rec = rotated_image.get_rect(center = image_rec.center)
-    screen.blit(rotated_image, rotated_rec)
-    if send:
-        port.write("R".encode()) # Let the microbit know we are going to send data
-    else:
-        port.write("Y".encode()) # Let the microbit know we received the data
-
-    # Update screen
-    pygame.display.flip()
-
-    if send:
-        while True:
-            message = port.readline().decode("utf-8")
-            if message.find("Y") > -1:
-                print("Ready")
-                break
-
-        # Send data to the microbit
-        brightness_led_one = randint(0, 5)
-        brightness_led_two = randint(0, 5)
-        brightness_led_three = randint(0, 5)
-        brightness_led_four = randint(0, 5)
-        brightness_led_five = randint(0, 5)
-        info = str([brightness_led_one, brightness_led_two, brightness_led_three, brightness_led_four, brightness_led_five])
-        length = str(len(info))
-        if len(length) < 3:
-            if len(length) == 1:
-                length = "0" + "0" + length
-            elif len(length) == 2:
-                length = "0" + length
-        port.write(length.encode())
-        print(length)
-
-        while True:
-            message = port.readline().decode("utf-8")
-            if message.find("Y") > -1:
-                print("Ready")
-                break
-
-        port.write(info.encode())
-        print(info)
-
-        # Obtain data from the microbit
-        data = ubit.data(port)
-        while type(data) != list: # Make sure message is intact and wait for it to come
+    global data
+    try:
+        if port.in_waiting > 0:
+            # Obtain data from the microbit
             data = ubit.data(port)
-        print(data)
+            while type(data) != list: # Make sure message is intact and wait for it to come
+                data = ubit.data(port)
+            print(data)
+            port.write("Y".encode()) # Let the microbit know we received the data
+    except: # Controller disconnected
+        data = [-1, -1, -1, -1]
 
-        while True:
-            message = port.readline().decode("utf-8")
-            if message.find("Y") > -1:
-                print("Ready")
-                break
-        send = False
+def run_in_thread(func):
+    """
+    This function is used to run a function
+    fun in a separate thread.
+    - func: The function to run in a different thread.
+    """
+    thread = Thread(target=func)
+    thread.daemon = True
+    thread.start()
 
-# Quit game
-pygame.quit()
-sys.exit()
+def draw_text(screen, text, X, Y):
+    """
+    This function draws any text to the screen.
+    - screen: pygame.displayto draw to.
+    - text: string of the text to draw.
+    - X: x coordinate of the center of the text.
+    - Y: y coordinate of the center of the text.
+    """
+    font = pygame.font.Font("dpcomic/dpcomic.ttf", 20)
+    text_img = font.render(text, True, (255, 255, 255))
+    text_rect = text_img.get_rect()
+    text_rect.center = (X, Y)
+    screen.blit(text_img, text_rect)
+    return [text_img, text_rect]
+
+def decrease_lives():
+    """
+    This function decreases by one the lives variable
+    and sends an instruction to the microbit so that
+    it turns off one LED.
+    """
+    try:
+        lives -= 1
+        port.write("D".encode())
+    except: # Controller disconnected
+        data = [-1, -1, -1, -1]
+
+# Sync with the microbit
+port.write("Y".encode())
+# Reset lives
+port.write("R".encode())
+while True:
+    # Scroll lives
+    port.write("D".encode())
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+    run_in_thread(get_data)
+    screen.fill((0, 0, 0))
+    button = "Button press: "
+    if data[0] == 1:
+        button += "U"
+    elif data[0] == 2:
+        button += "L"
+    elif data[0] == 3:
+        button += "D"
+    elif data[0] == 4:
+        button += "R"
+    pot = "Pot: {}".format(data[2])
+    fan = "Fan: {}".format(data[3])
+    draw_text(screen, button, int(width / 2), width / 4)
+    draw_text(screen, pot, int(width / 2), (2 * (width / 4)))
+    draw_text(screen, fan, int(width / 2), width - (width / 4))
+    pygame.display.flip()
